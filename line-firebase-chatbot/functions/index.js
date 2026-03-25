@@ -1,32 +1,68 @@
-const functions = require("firebase-functions");
-const axios = require("axios");
-const cheerio = require("cheerio");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const logger = require("firebase-functions/logger");
+const puppeteer = require("puppeteer");
 
 const admin = require("firebase-admin");
 admin.initializeApp();
 
-const target = "div.mt-4.grid.grid-cols-2.gap-4.sm:grid-cols-3.lg:grid-cols-4 span.text-xl.font-bold.md:text-3xl.text-green-600";
+const runtimeOptions = {
+  memory: "2GiB",
+  timeoutSeconds: 300,
+  region: "asia-southeast1",
+};
 
-exports.gold = functions.pubsub.schedule("0 */1 * * *").timeZone("Asia/Bangkok").onRun(async context => {
-  // Web Scraping
-  const response = await axios.get("https://goldtraders.or.th");
-  const html = response.data;
-  const $ = cheerio.load(html);
-  const selector = $(target);
-  if (selector.length !== 4) { return null; }
-  let priceCurrent = "";
-  selector.each((index, element) => {
-    if (index === 0) {
-      priceCurrent = $(element).text();
-    } else {
-      priceCurrent = priceCurrent.concat("|", $(element).text());
+const COLLECTION_NAME = "gold_value";
+const TARGET_SELECTOR = "div.mt-4.grid.grid-cols-2.gap-4 span.text-xl.font-bold.text-green-600";
+
+exports.gold_value_task = onSchedule({
+  schedule: "0 */1 * * *",
+  timeZone: "Asia/Bangkok",
+  ...runtimeOptions
+}, async (event) => {
+  let browser;
+  try {
+    logger.info("Starting Gold Price Scraping...");
+
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    const page = await browser.newPage();
+    await page.goto("https://goldtraders.or.th", { waitUntil: "networkidle2", timeout: 60000 });
+    await page.waitForSelector(TARGET_SELECTOR);
+
+    const prices = await page.evaluate((selector) => {
+      const elements = Array.from(document.querySelectorAll(selector));
+      return elements.map(element => element.innerText.trim());
+    }, TARGET_SELECTOR);
+
+    if (prices.length !== 4) {
+      logger.error(`Expected 4 price elements but found ${prices.length}`);
+      return;
     }
-  });
-  // Firebase
-  let priceLast = await admin.firestore().doc("line/gold").get();
-  if (!priceLast.exists || priceLast.data().price !== priceCurrent) {
-    await admin.firestore().doc("line/gold").set({ price: priceCurrent });
-    // broadcast(priceCurrent);
+
+    const priceCurrent = prices.join("|");
+    const databaseInst = admin.firestore();
+
+    const lastEntry = await databaseInst.collection(COLLECTION_NAME).orderBy("createdAt", "desc").limit(1).get();
+    let lastPrice = null;
+    if (!lastEntry.empty) { lastPrice = lastEntry.docs[0].data().priceData; }
+
+    if (lastPrice !== priceCurrent) {
+      await databaseInst.collection(COLLECTION_NAME).add({
+        priceData: priceCurrent,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      logger.info("Saved to collection!");
+      // broadcast(priceCurrent);
+    }
+  } catch (error) {
+    logger.error("Scraping task failed: ", error);
+  } finally {
+    if (browser) {
+      await browser.close();
+      logger.info("Browser closed.");
+    }
   }
 });
 

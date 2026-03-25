@@ -42,10 +42,10 @@ async function scrapeGoldPrice() {
     }, target);
 
     const priceCurrent = prices.join("|");
-    console.log("Current Price: ", priceCurrent);
+    console.log("Current prices: ", priceCurrent);
 
-    if (prices.length === 0) {
-      console.log("No Data Found!");
+    if (prices.length !== 4) {
+      console.log(`Expected 4 price elements but found ${prices.length}`);
       return;
     }
 
@@ -53,10 +53,10 @@ async function scrapeGoldPrice() {
     if (!lastEntry || lastEntry.priceData !== priceCurrent) {
       const newGoldValue = new GoldValue({ priceData: priceCurrent });
       await newGoldValue.save();
-      console.log(`Saved to Collection: "gold_value"`);
+      console.log("Saved to collection!");
     }
   } catch (error) {
-    console.error("Scraping Error: ", error.message);
+    console.error("Scraping task failed: ", error.message);
   } finally {
     if (browser) { await browser.close(); }
   }
