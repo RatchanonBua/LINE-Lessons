@@ -1,0 +1,36 @@
+body {
+  margin: 20px;
+  font-family: sans-serif;
+}
+
+button {
+  display: none;
+  width: 100%;
+  padding: 8px 0;
+  margin: 8px auto;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  cursor: pointer;
+}
+
+p {
+  border-bottom: 1px dashed #ddd;
+  padding-bottom: 8px;
+}
+
+#pictureUrl {
+  margin: 0 auto;
+  width: 30%;
+  aspect-ratio: 1 / 1;
+  display: block;
+  border-radius: 50%;
+  border: 1px solid #eee;
+  object-fit: cover;
+  object-position: center;
+}
+
+#accessToken, #utouId {
+  display: block;
+  overflow: auto;
+  word-break: break-all;
+}
