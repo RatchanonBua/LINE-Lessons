@@ -4,15 +4,15 @@ const puppeteer = require("puppeteer");
 
 const admin = require("firebase-admin");
 admin.initializeApp();
+const databaseInst = admin.firestore();
+
+const target = "div.mt-4.grid.grid-cols-2.gap-4 span.text-xl.font-bold.text-green-600, div.mt-4.grid.grid-cols-2.gap-4 span.text-xl.font-bold.text-red-600";
 
 const runtimeOptions = {
   memory: "2GiB",
   timeoutSeconds: 300,
   region: "asia-southeast1",
 };
-
-const COLLECTION_NAME = "gold_value";
-const TARGET_SELECTOR = "div.mt-4.grid.grid-cols-2.gap-4 span.text-xl.font-bold.text-green-600";
 
 exports.gold_value_task = onSchedule({
   schedule: "0 */1 * * *",
@@ -21,47 +21,48 @@ exports.gold_value_task = onSchedule({
 }, async (event) => {
   let browser;
   try {
-    logger.info("Starting Gold Price Scraping...");
+    logger.info("Starting Gold Price Scraping on Firebase...");
 
     browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
+
     const page = await browser.newPage();
     await page.goto("https://goldtraders.or.th", { waitUntil: "networkidle2", timeout: 60000 });
-    await page.waitForSelector(TARGET_SELECTOR);
+    await page.waitForSelector(target, { timeout: 30000 });
 
     const prices = await page.evaluate((selector) => {
       const elements = Array.from(document.querySelectorAll(selector));
       return elements.map(element => element.innerText.trim());
-    }, TARGET_SELECTOR);
+    }, target);
 
     if (prices.length !== 4) {
-      logger.error(`Expected 4 price elements but found ${prices.length}`);
+      logger.error(`Elements: ${prices.length}`);
       return;
     }
 
     const priceCurrent = prices.join("|");
-    const databaseInst = admin.firestore();
-
-    const lastEntry = await databaseInst.collection(COLLECTION_NAME).orderBy("createdAt", "desc").limit(1).get();
+    const lastEntry = await databaseInst.collection("gold_value").orderBy("createdAt", "desc").limit(1).get();
     let lastPrice = null;
+
     if (!lastEntry.empty) { lastPrice = lastEntry.docs[0].data().priceData; }
 
     if (lastPrice !== priceCurrent) {
-      await databaseInst.collection(COLLECTION_NAME).add({
+      await databaseInst.collection("gold_value").add({
         priceData: priceCurrent,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      logger.info("Saved to collection!");
-      // broadcast(priceCurrent);
+      logger.info(`${priceCurrent} / Saved!`);
+    } else {
+      logger.info(`${priceCurrent} / Accepted!`);
     }
   } catch (error) {
-    logger.error("Scraping task failed: ", error);
+    logger.error("Failed: ", error.message);
   } finally {
     if (browser) {
       await browser.close();
-      logger.info("Browser closed.");
+      logger.info("Finished!");
     }
   }
 });
