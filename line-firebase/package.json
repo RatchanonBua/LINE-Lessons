@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "firebase-admin": "^13.7.0",
-    "puppeteer": "^24.40.0"
+    "firebase-admin": "^13.7.0"
   }
 }
